@@ -14,7 +14,7 @@ return [
     ],
 
     'llm' => [
-        'driver' => env('LLM_DRIVER', 'stub'),
+        'driver' => env('LLM_DRIVER', 'openai'),
         'openai_key' => env('OPENAI_API_KEY'),
         'openai_model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
     ],

@@ -3,7 +3,7 @@ import './globals.css';
 import { Providers } from '@/components/Providers';
 
 export const metadata: Metadata = {
-  title: 'Gmail Auto Responder',
+  title: 'RevReply — AI Gmail Assistant',
   description: 'Classify inbound Gmail and generate draft replies',
 };
 

@@ -41,6 +41,12 @@ class ProcessGmailHistoryJob implements ShouldQueue
             return;
         }
 
+        if (str_starts_with($this->historyId, 'pending:')) {
+            self::processPendingForAccount($account);
+
+            return;
+        }
+
         // Always process pending AI pipeline first (even if sync lock is held).
         self::processPendingForAccount($account);
 

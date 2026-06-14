@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppNav } from '@/components/AppNav';
+import { AppShell } from '@/components/AppNav';
 import { ConnectGmailHelp } from '@/components/ConnectGmailHelp';
 import { MailboxCard } from '@/components/MailboxCard';
 import { auth, gmail, getToken, GmailAccount } from '@/lib/api';
@@ -38,40 +38,20 @@ function MailboxesContent() {
   const { data: accountsData, refetch } = useQuery({
     queryKey: ['gmail-accounts'],
     queryFn: gmail.accounts,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   const accounts = accountsData?.data ?? [];
 
-  // Auto-sync + auto classify/draft every 30s while this page is open
   useEffect(() => {
     if (!getToken()) return;
 
-    let cancelled = false;
-    let syncing = false;
+    const id = setInterval(() => {
+      gmail.syncAll().catch(() => undefined);
+    }, 60_000);
 
-    async function tick() {
-      if (syncing) return;
-      syncing = true;
-      try {
-        await gmail.syncAll();
-        if (cancelled) return;
-        await refetch();
-        queryClient.invalidateQueries({ queryKey: ['threads'] });
-      } catch {
-        // ignore background sync errors
-      } finally {
-        syncing = false;
-      }
-    }
-
-    tick();
-    const id = setInterval(tick, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [queryClient, refetch]);
+    return () => clearInterval(id);
+  }, []);
 
   async function handleConnect() {
     setConnecting(true);
@@ -95,8 +75,10 @@ function MailboxesContent() {
     setSyncingId(account.id);
     try {
       await gmail.sync(account.id);
-      await refetch();
-      queryClient.invalidateQueries({ queryKey: ['threads'] });
+      setTimeout(() => {
+        refetch();
+        queryClient.invalidateQueries({ queryKey: ['threads'] });
+      }, 2_000);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Sync failed');
     } finally {
@@ -105,15 +87,18 @@ function MailboxesContent() {
   }
 
   return (
-    <>
-      <AppNav />
+    <AppShell>
       <div className="container">
-        <h1 style={{ marginBottom: '0.35rem' }}>Mailboxes</h1>
-        {user && (
-          <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
-            App account: <strong>{user.email}</strong> — only you can see and manage mailboxes connected here.
-          </p>
-        )}
+        <div className="page-heading">
+          <div>
+            <h1>Mailboxes</h1>
+            {user && (
+              <p>
+                App account: <strong>{user.email}</strong> — only you can see mailboxes connected here.
+              </p>
+            )}
+          </div>
+        </div>
 
         {connected && (
           <p style={{ color: 'var(--success)', marginBottom: '1rem' }}>
@@ -182,6 +167,6 @@ function MailboxesContent() {
           </p>
         )}
       </div>
-    </>
+    </AppShell>
   );
 }

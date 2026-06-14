@@ -55,9 +55,37 @@ export const gmail = {
   syncAll: () => api<{ message: string; synced: number }>('/gmail/accounts/sync-all', { method: 'POST' }),
 };
 
+export type ThreadListParams = {
+  page?: number;
+  filter?: 'all' | 'needs_review' | 'sent';
+  label?: string;
+  mailbox?: number;
+  mailbox_q?: string;
+  q?: string;
+};
+
+function threadQueryString(params: ThreadListParams = {}) {
+  const sp = new URLSearchParams();
+  if (params.page && params.page > 1) sp.set('page', String(params.page));
+  if (params.filter && params.filter !== 'all') sp.set('filter', params.filter);
+  if (params.label && params.label !== 'all') sp.set('label', params.label);
+  if (params.mailbox) sp.set('mailbox', String(params.mailbox));
+  if (params.mailbox_q?.trim()) sp.set('mailbox_q', params.mailbox_q.trim());
+  if (params.q?.trim()) sp.set('q', params.q.trim());
+  const qs = sp.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export const threads = {
-  list: (page = 1) => api<Paginated<Thread>>(`/threads?page=${page}`),
+  list: (params: ThreadListParams = {}) =>
+    api<Paginated<Thread>>(`/threads${threadQueryString(params)}`),
   show: (id: number) => api<Thread>(`/threads/${id}`),
+  markSeen: (id: number) => api<{ notification_state: 1 }>(`/threads/${id}/seen`, { method: 'POST' }),
+  setNotificationState: (id: number, state: 0 | 1) =>
+    api<{ notification_state: 0 | 1 }>(`/threads/${id}/notification-state`, {
+      method: 'POST',
+      body: JSON.stringify({ state }),
+    }),
   message: (id: number) => api<Message>(`/messages/${id}`),
   generateDraft: (messageId: number) =>
     api<Message>(`/messages/${messageId}/generate-draft`, { method: 'POST' }),
@@ -69,6 +97,20 @@ export const drafts = {
   approve: (id: number, body?: string) =>
     api<DraftReply>(`/drafts/${id}/approve`, { method: 'POST', body: JSON.stringify({ body }) }),
   reject: (id: number) => api<DraftReply>(`/drafts/${id}/reject`, { method: 'POST' }),
+};
+
+export type AppNotification = {
+  id: string;
+  type: 'needs_review' | 'sent';
+  title: string;
+  body: string;
+  thread_id: number;
+  created_at: string;
+};
+
+export const notifications = {
+  list: () => api<{ data: AppNotification[] }>('/notifications'),
+  markAllRead: () => api<{ message: string }>('/notifications/read-all', { method: 'POST' }),
 };
 
 export const settings = {
@@ -125,6 +167,7 @@ export type Thread = {
   subject: string;
   snippet: string;
   last_message_at: string;
+  notification_state?: 0 | 1;
   gmail_account?: GmailAccount;
   messages?: Message[];
 };

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { auth, setToken } from '@/lib/api';
+import { RevReplyBrand } from '@/components/AppNav';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -12,7 +13,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [error, setError] = useState('');
-  
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
@@ -31,30 +32,33 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="container" style={{ maxWidth: 420 }}>
-      <h1 style={{ marginBottom: '1.5rem' }}>Create account</h1>
-      {error && <p className="error">{error}</p>}
-      <form onSubmit={handleSubmit} className="card">
-        <label>Name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} required />
-        <label>Email</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <label>Password</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <label>Confirm password</label>
-        <input
-          type="password"
-          value={passwordConfirmation}
-          onChange={(e) => setPasswordConfirmation(e.target.value)}
-          required
-        />
-        <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-          Register
-        </button>
-      </form>
-      <p style={{ marginTop: '1rem', color: 'var(--muted)' }}>
-        Already have an account? <Link href="/login">Sign in</Link>
-      </p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <RevReplyBrand center tagline="AI Gmail Assistant" />
+        <h1>Create account</h1>
+        {error && <p className="error">{error}</p>}
+        <form onSubmit={handleSubmit} className="card">
+          <label>Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} required />
+          <label>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <label>Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <label>Confirm password</label>
+          <input
+            type="password"
+            value={passwordConfirmation}
+            onChange={(e) => setPasswordConfirmation(e.target.value)}
+            required
+          />
+          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+            Register
+          </button>
+        </form>
+        <p style={{ marginTop: '1rem', color: 'var(--muted)', textAlign: 'center' }}>
+          Already have an account? <Link href="/login">Sign in</Link>
+        </p>
+      </div>
     </div>
   );
 }

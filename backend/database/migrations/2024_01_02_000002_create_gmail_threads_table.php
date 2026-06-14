@@ -15,6 +15,7 @@ return new class extends Migration
             $table->string('subject')->nullable();
             $table->text('snippet')->nullable();
             $table->timestamp('last_message_at')->nullable();
+            $table->unsignedTinyInteger('notification_state')->default(0);
             $table->timestamps();
 
             $table->unique(['gmail_account_id', 'gmail_thread_id']);

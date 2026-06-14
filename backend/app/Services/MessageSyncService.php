@@ -33,6 +33,8 @@ class MessageSyncService
             ]
         );
 
+        $thread->update(['notification_state' => 0]);
+
         $message = GmailMessage::updateOrCreate(
             [
                 'gmail_account_id' => $account->id,

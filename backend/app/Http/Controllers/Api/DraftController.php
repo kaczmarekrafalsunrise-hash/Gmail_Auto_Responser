@@ -54,6 +54,9 @@ class DraftController extends Controller
             'approved_at' => now(),
         ]);
 
+        $message->load('thread');
+        $message->thread?->update(['notification_state' => 0]);
+
         return response()->json($draft->fresh());
     }
 

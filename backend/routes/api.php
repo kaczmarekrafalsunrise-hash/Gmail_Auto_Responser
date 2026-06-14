@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DraftController;
 use App\Http\Controllers\Api\GmailController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ThreadController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
@@ -26,12 +27,17 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/threads', [ThreadController::class, 'index']);
     Route::get('/threads/{thread}', [ThreadController::class, 'show']);
+    Route::post('/threads/{thread}/seen', [ThreadController::class, 'markSeen']);
+    Route::post('/threads/{thread}/notification-state', [ThreadController::class, 'updateNotificationState']);
     Route::get('/messages/{message}', [ThreadController::class, 'message']);
     Route::post('/messages/{message}/generate-draft', [ThreadController::class, 'generateDraft']);
     Route::post('/messages/{message}/process', [ThreadController::class, 'process']);
 
     Route::post('/drafts/{draft}/approve', [DraftController::class, 'approve']);
     Route::post('/drafts/{draft}/reject', [DraftController::class, 'reject']);
+
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
 
     Route::get('/settings', [AuthController::class, 'settings']);
     Route::put('/settings/reply-prompt', [AuthController::class, 'updateReplyPrompt']);

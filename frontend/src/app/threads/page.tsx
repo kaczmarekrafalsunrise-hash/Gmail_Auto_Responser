@@ -1,98 +1,96 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppNav } from '@/components/AppNav';
-import { gmail, getToken, threads } from '@/lib/api';
+import { Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { AppShell, ConversationList } from '@/components/AppNav';
+import { getToken, gmail, threads } from '@/lib/api';
 
-function labelBadge(label?: string) {
-  if (!label) return null;
-  return <span className={`badge badge-${label}`}>{label.replace('_', ' ')}</span>;
+function threadNeedsProcessing(thread: Awaited<ReturnType<typeof threads.list>>['data'][number]) {
+  const latestMessage = thread.messages?.[thread.messages.length - 1];
+  if (!latestMessage) return false;
+  if (!latestMessage.classification) return true;
+  if (latestMessage.classification.label === 'not_interested') return false;
+  return !latestMessage.draft_reply;
 }
 
-export default function ThreadsPage() {
+function ThreadsContent() {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1'));
+  const filter = (searchParams.get('filter') ?? 'all') as 'all' | 'needs_review' | 'sent';
+  const mailboxParam = searchParams.get('mailbox');
+  const mailbox = mailboxParam ? Number(mailboxParam) : undefined;
+  const mailboxQ = searchParams.get('mailbox_q') ?? '';
+  const q = searchParams.get('q') ?? '';
 
   useEffect(() => {
     if (!getToken()) router.push('/login');
   }, [router]);
 
-  useEffect(() => {
-    if (!getToken()) return;
-
-    let cancelled = false;
-    let syncing = false;
-
-    async function tick() {
-      if (syncing) return;
-      syncing = true;
-      try {
-        await gmail.syncAll();
-        if (cancelled) return;
-        queryClient.invalidateQueries({ queryKey: ['threads'] });
-        queryClient.invalidateQueries({ queryKey: ['gmail-accounts'] });
-      } catch {
-        // ignore transient sync errors
-      } finally {
-        syncing = false;
-      }
-    }
-
-    tick();
-    const id = setInterval(tick, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [queryClient]);
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['threads'],
-    queryFn: () => threads.list(),
-    refetchInterval: 10_000,
+  const { data: accountsData } = useQuery({
+    queryKey: ['gmail-accounts'],
+    queryFn: gmail.accounts,
   });
 
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['threads', page, filter, mailbox, mailboxQ, q],
+    queryFn: () =>
+      threads.list({
+        page,
+        filter: filter !== 'all' ? filter : undefined,
+        mailbox,
+        mailbox_q: mailboxQ || undefined,
+        q: q || undefined,
+      }),
+    placeholderData: keepPreviousData,
+    refetchInterval: (query) => {
+      const items = query.state.data?.data ?? [];
+      return items.some(threadNeedsProcessing) ? 5_000 : 30_000;
+    },
+  });
+
+  const pagination = {
+    currentPage: data?.current_page ?? page,
+    lastPage: data?.last_page ?? 1,
+    total: data?.total ?? 0,
+  };
+
+  const mailboxes = accountsData?.data ?? [];
+
   return (
-    <>
-      <AppNav />
+    <AppShell>
       <div className="container">
-        <h1 style={{ marginBottom: '1.5rem' }}>Email threads</h1>
+        <div className="page-heading">
+          <div>
+            <h1>Conversations</h1>
+            <p>
+              Filter by status and inbox. Use the mailbox search or Ctrl+K for subjects and senders.
+            </p>
+          </div>
+        </div>
 
-        {isLoading && <p style={{ color: 'var(--muted)' }}>Loading…</p>}
-
-        {data?.data?.map((thread) => {
-          const latestMessage = thread.messages?.[thread.messages.length - 1];
-          const classification = latestMessage?.classification;
-          const draft = latestMessage?.draft_reply;
-
-          return (
-            <Link key={thread.id} href={`/threads/${thread.id}`} className="card" style={{ display: 'block' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                <div>
-                  <strong>{thread.subject || '(no subject)'}</strong>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: '0.35rem' }}>
-                    {thread.snippet}
-                  </p>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                    {thread.last_message_at ? new Date(thread.last_message_at).toLocaleString() : ''}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
-                  {labelBadge(classification?.label)}
-                  {draft && <span className={`badge badge-${draft.status}`}>{draft.status.replace('_', ' ')}</span>}
-                </div>
-              </div>
-            </Link>
-          );
-        })}
-
-        {!isLoading && !data?.data?.length && (
-          <p style={{ color: 'var(--muted)' }}>No threads yet. Connect Gmail and send a test email to your inbox.</p>
-        )}
+        <div className="panel">
+          <Suspense fallback={null}>
+            <ConversationList
+              threads={data?.data ?? []}
+              mailboxes={mailboxes}
+              loading={isLoading && !data}
+              fetching={isFetching}
+              pagination={pagination}
+            />
+          </Suspense>
+        </div>
       </div>
-    </>
+    </AppShell>
+  );
+}
+
+export default function ThreadsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ThreadsContent />
+    </Suspense>
   );
 }

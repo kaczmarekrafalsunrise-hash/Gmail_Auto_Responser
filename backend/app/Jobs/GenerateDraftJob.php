@@ -71,5 +71,8 @@ class GenerateDraftJob implements ShouldQueue
             'body' => $body,
             'status' => DraftReply::STATUS_PENDING,
         ]);
+
+        $message->load('thread');
+        $message->thread?->update(['notification_state' => 0]);
     }
 }

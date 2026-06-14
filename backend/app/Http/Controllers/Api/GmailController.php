@@ -120,9 +120,9 @@ class GmailController extends Controller
 
         try {
             $historyId = 'manual:'.$gmailAccount->id.':'.(int) (microtime(true) * 1000);
-            ProcessGmailHistoryJob::dispatchSync($gmailAccount->id, $historyId);
+            ProcessGmailHistoryJob::dispatch($gmailAccount->id, $historyId);
 
-            return response()->json(['message' => 'Sync complete', 'history_id' => $historyId]);
+            return response()->json(['message' => 'Sync started', 'history_id' => $historyId]);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 500);
         }
@@ -137,17 +137,17 @@ class GmailController extends Controller
             ->get();
 
         $synced = 0;
-        $processed = 0;
         $errors = [];
         $usePoll = ! $this->gmailService->isPubSubConfigured();
 
         foreach ($accounts as $account) {
             try {
+                $suffix = (int) (microtime(true) * 1000);
                 if ($usePoll) {
-                    $historyId = 'auto:'.$account->id.':'.(int) (microtime(true) * 1000);
-                    ProcessGmailHistoryJob::dispatchSync($account->id, $historyId);
+                    ProcessGmailHistoryJob::dispatch($account->id, 'auto:'.$account->id.':'.$suffix);
+                } else {
+                    ProcessGmailHistoryJob::dispatch($account->id, 'pending:'.$account->id.':'.$suffix);
                 }
-                $processed += ProcessGmailHistoryJob::processPendingForAccount($account);
                 $synced++;
             } catch (\Throwable $e) {
                 $errors[] = $account->gmail_email.': '.$e->getMessage();
@@ -158,14 +158,12 @@ class GmailController extends Controller
             return response()->json([
                 'message' => implode('; ', $errors),
                 'synced' => $synced,
-                'processed' => $processed,
             ], 500);
         }
 
         return response()->json([
-            'message' => 'Sync complete',
+            'message' => 'Sync queued',
             'synced' => $synced,
-            'processed' => $processed,
         ]);
     }
 }
