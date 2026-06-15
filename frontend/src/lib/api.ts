@@ -15,6 +15,20 @@ export function clearToken() {
   localStorage.removeItem('token');
 }
 
+const WELCOME_PENDING_KEY = 'revreply_welcome_pending';
+
+export function markWelcomePending(options?: { isNewUser?: boolean }) {
+  sessionStorage.setItem(WELCOME_PENDING_KEY, options?.isNewUser ? 'new' : 'returning');
+}
+
+export function consumeWelcomePending(): 'new' | 'returning' | false {
+  if (typeof window === 'undefined') return false;
+  const value = sessionStorage.getItem(WELCOME_PENDING_KEY);
+  if (!value) return false;
+  sessionStorage.removeItem(WELCOME_PENDING_KEY);
+  return value === 'new' ? 'new' : 'returning';
+}
+
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: HeadersInit = {

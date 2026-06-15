@@ -263,7 +263,7 @@ function DashboardContent() {
           </div>
           <div className="stat-card">
             <p className="stat-card-label">Response Time</p>
-            <p className="stat-card-value">2m 15s</p>
+            <p className="stat-card-value">1m 25s</p>
             <p className="stat-card-meta">Avg. draft generation</p>
           </div>
         </div>

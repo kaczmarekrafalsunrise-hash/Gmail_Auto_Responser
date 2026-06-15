@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { auth, clearToken, getToken, notifications, threads, type Thread } from '@/lib/api';
+import { auth, clearToken, consumeWelcomePending, getToken, notifications, threads, type Thread } from '@/lib/api';
+import { WelcomeScreen } from '@/components/WelcomeScreen';
 
 function BrandBolt() {
   return (
@@ -14,7 +15,7 @@ function BrandBolt() {
   );
 }
 
-function BrandMark() {
+export function BrandMark() {
   return (
     <div className="revreply-mark" aria-hidden="true">
       <svg viewBox="0 0 32 32" fill="none">
@@ -316,6 +317,14 @@ function HeaderUser() {
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeIsNewUser, setWelcomeIsNewUser] = useState(false);
+
+  const { data: user } = useQuery({
+    queryKey: ['me'],
+    queryFn: auth.me,
+    enabled: !!getToken(),
+  });
 
   const { data: threadsData } = useQuery({
     queryKey: ['threads', 'sidebar-count'],
@@ -324,6 +333,14 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   });
 
   const threadCount = threadsData?.total ?? 0;
+
+  useEffect(() => {
+    const pending = consumeWelcomePending();
+    if (pending) {
+      setWelcomeIsNewUser(pending === 'new');
+      setShowWelcome(true);
+    }
+  }, []);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -338,6 +355,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
+      {showWelcome && (
+        <WelcomeScreen
+          userName={user?.name}
+          isNewUser={welcomeIsNewUser}
+          onClose={() => setShowWelcome(false)}
+        />
+      )}
       <aside className="sidebar">
         <Link href="/dashboard" className="sidebar-brand">
           <RevReplyBrand tagline="AI Gmail Assistant" />

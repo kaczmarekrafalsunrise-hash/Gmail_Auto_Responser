@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { auth, setToken } from '@/lib/api';
+import { auth, setToken, markWelcomePending } from '@/lib/api';
 import { RevReplyBrand } from '@/components/AppNav';
+import { AuthSubmitButton } from '@/components/AuthSubmitButton';
+import { PasswordInput } from '@/components/PasswordInput';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -13,10 +15,12 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setLoading(true);
     try {
       const res = await auth.register({
         name,
@@ -25,9 +29,12 @@ export default function RegisterPage() {
         password_confirmation: passwordConfirmation,
       });
       setToken(res.token);
+      markWelcomePending({ isNewUser: true });
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -38,22 +45,44 @@ export default function RegisterPage() {
         <h1>Create account</h1>
         {error && <p className="error">{error}</p>}
         <form onSubmit={handleSubmit} className="card">
-          <label>Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
-          <label>Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <label>Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          <label>Confirm password</label>
+          <label htmlFor="register-name">Name</label>
           <input
-            type="password"
-            value={passwordConfirmation}
-            onChange={(e) => setPasswordConfirmation(e.target.value)}
+            id="register-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             required
+            disabled={loading}
+            autoComplete="name"
           />
-          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-            Register
-          </button>
+          <label htmlFor="register-email">Email</label>
+          <input
+            id="register-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={loading}
+            autoComplete="email"
+          />
+          <label htmlFor="register-password">Password</label>
+          <PasswordInput
+            id="register-password"
+            value={password}
+            onChange={setPassword}
+            required
+            disabled={loading}
+            autoComplete="new-password"
+          />
+          <label htmlFor="register-password-confirm">Confirm password</label>
+          <PasswordInput
+            id="register-password-confirm"
+            value={passwordConfirmation}
+            onChange={setPasswordConfirmation}
+            required
+            disabled={loading}
+            autoComplete="new-password"
+          />
+          <AuthSubmitButton loading={loading} loadingLabel="Creating account…" label="Register" />
         </form>
         <p style={{ marginTop: '1rem', color: 'var(--muted)', textAlign: 'center' }}>
           Already have an account? <Link href="/login">Sign in</Link>

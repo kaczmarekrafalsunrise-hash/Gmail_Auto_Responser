@@ -87,21 +87,26 @@ class GmailService
         $gmail = new Gmail($client);
         $profile = $gmail->users->getProfile('me');
 
+        $attributes = [
+            'gmail_email' => $profile->getEmailAddress(),
+            'encrypted_access_token' => $token['access_token'] ?? null,
+            'token_expires_at' => isset($token['expires_in'])
+                ? now()->addSeconds((int) $token['expires_in'])
+                : null,
+            'last_history_id' => (string) $profile->getHistoryId(),
+            'status' => 'active',
+        ];
+
+        if (! empty($token['refresh_token'])) {
+            $attributes['encrypted_refresh_token'] = $token['refresh_token'];
+        }
+
         $account = GmailAccount::updateOrCreate(
             [
                 'user_id' => $userId,
                 'google_account_id' => $profile->getEmailAddress(),
             ],
-            [
-                'gmail_email' => $profile->getEmailAddress(),
-                'encrypted_refresh_token' => $token['refresh_token'] ?? '',
-                'encrypted_access_token' => $token['access_token'] ?? null,
-                'token_expires_at' => isset($token['expires_in'])
-                    ? now()->addSeconds((int) $token['expires_in'])
-                    : null,
-                'last_history_id' => (string) $profile->getHistoryId(),
-                'status' => 'active',
-            ]
+            $attributes
         );
 
         if ($this->isPubSubConfigured()) {
@@ -332,11 +337,12 @@ class GmailService
                 return;
             }
 
-            $client = $this->makeOAuthClient();
-            $client->setAccessToken([
-                'refresh_token' => $account->encrypted_refresh_token,
-            ]);
+            if (! filled($account->encrypted_refresh_token)) {
+                $account->update(['status' => 'token_revoked']);
+                throw new RuntimeException('No refresh token — disconnect and reconnect Gmail on Mailboxes.');
+            }
 
+            $client = $this->makeOAuthClient();
             $newToken = $client->fetchAccessTokenWithRefreshToken($account->encrypted_refresh_token);
 
             if (isset($newToken['error'])) {

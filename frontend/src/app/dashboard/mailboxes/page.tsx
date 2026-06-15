@@ -46,12 +46,21 @@ function MailboxesContent() {
   useEffect(() => {
     if (!getToken()) return;
 
-    const id = setInterval(() => {
-      gmail.syncAll().catch(() => undefined);
-    }, 60_000);
+    const runAutoSync = () => {
+      gmail
+        .syncAll()
+        .then(() => {
+          refetch();
+          queryClient.invalidateQueries({ queryKey: ['threads'] });
+        })
+        .catch(() => undefined);
+    };
+
+    runAutoSync();
+    const id = setInterval(runAutoSync, 60_000);
 
     return () => clearInterval(id);
-  }, []);
+  }, [queryClient, refetch]);
 
   async function handleConnect() {
     setConnecting(true);

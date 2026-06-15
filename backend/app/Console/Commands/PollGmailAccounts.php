@@ -6,6 +6,7 @@ use App\Jobs\ProcessGmailHistoryJob;
 use App\Models\GmailAccount;
 use App\Services\GmailService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class PollGmailAccounts extends Command
 {
@@ -28,11 +29,23 @@ class PollGmailAccounts extends Command
         $pollMinute = now()->format('Y-m-d-H-i');
         $usePoll = ! $gmailService->isPubSubConfigured();
 
+        $failed = 0;
+
         foreach ($accounts as $account) {
             if ($usePoll) {
                 $pollKey = 'poll:'.$account->id.':'.$pollMinute;
-                ProcessGmailHistoryJob::dispatchSync($account->id, $pollKey);
-                $this->info("Polled {$account->gmail_email}");
+                try {
+                    ProcessGmailHistoryJob::dispatchSync($account->id, $pollKey);
+                    $this->info("Polled {$account->gmail_email}");
+                } catch (\Throwable $e) {
+                    $failed++;
+                    Log::error('gmail:poll failed for mailbox', [
+                        'gmail_account_id' => $account->id,
+                        'email' => $account->gmail_email,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $this->error("Poll failed for {$account->gmail_email}: {$e->getMessage()}");
+                }
             } else {
                 $count = ProcessGmailHistoryJob::processPendingForAccount($account);
                 if ($count > 0) {
@@ -41,6 +54,6 @@ class PollGmailAccounts extends Command
             }
         }
 
-        return self::SUCCESS;
+        return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

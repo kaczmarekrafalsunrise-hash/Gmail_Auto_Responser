@@ -52,7 +52,11 @@ class GmailAccount extends Model
 
     public function isTokenExpired(): bool
     {
-        return $this->token_expires_at === null || $this->token_expires_at->isPast();
+        if ($this->token_expires_at === null) {
+            return ! filled($this->encrypted_access_token);
+        }
+
+        return $this->token_expires_at->isPast();
     }
 
     public function isWatchExpiringSoon(): bool
