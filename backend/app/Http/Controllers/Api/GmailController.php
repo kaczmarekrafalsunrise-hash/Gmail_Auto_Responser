@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\SyncTrigger;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessGmailHistoryJob;
 use App\Models\GmailAccount;
@@ -18,7 +19,7 @@ class GmailController extends Controller
     {
         if (! $this->gmailService->isConfigured()) {
             return response()->json([
-                'message' => 'Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env (see docs/GOOGLE_SETUP.md).',
+                'message' => 'Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env.',
                 'configured' => false,
             ], 422);
         }
@@ -102,7 +103,7 @@ class GmailController extends Controller
 
     public function destroy(Request $request, GmailAccount $gmailAccount): JsonResponse
     {
-        abort_unless($gmailAccount->user_id === $request->user()->id, 403);
+        $this->authorize('delete', $gmailAccount);
 
         $this->gmailService->stopWatch($gmailAccount);
         $gmailAccount->delete();
@@ -112,20 +113,18 @@ class GmailController extends Controller
 
     public function sync(Request $request, GmailAccount $gmailAccount): JsonResponse
     {
-        abort_unless($gmailAccount->user_id === $request->user()->id, 403);
+        $this->authorize('sync', $gmailAccount);
 
         if (! $gmailAccount->last_history_id) {
             return response()->json(['message' => 'No history ID'], 422);
         }
 
-        try {
-            $historyId = 'manual:'.$gmailAccount->id.':'.(int) (microtime(true) * 1000);
-            ProcessGmailHistoryJob::dispatch($gmailAccount->id, $historyId);
+        $correlationId = 'manual-'.$gmailAccount->id.'-'.(int) (microtime(true) * 1000);
 
-            return response()->json(['message' => 'Sync started', 'history_id' => $historyId]);
-        } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 500);
-        }
+        ProcessGmailHistoryJob::dispatch($gmailAccount->id, SyncTrigger::Manual, $correlationId)
+            ->afterResponse();
+
+        return response()->json(['message' => 'Sync started', 'correlation_id' => $correlationId]);
     }
 
     public function syncAll(Request $request): JsonResponse
@@ -136,34 +135,17 @@ class GmailController extends Controller
             ->whereNotNull('last_history_id')
             ->get();
 
-        $synced = 0;
-        $errors = [];
         $usePoll = ! $this->gmailService->isPubSubConfigured();
+        $trigger = $usePoll ? SyncTrigger::Auto : SyncTrigger::PendingOnly;
 
         foreach ($accounts as $account) {
-            try {
-                $suffix = (int) (microtime(true) * 1000);
-                if ($usePoll) {
-                    ProcessGmailHistoryJob::dispatch($account->id, 'auto:'.$account->id.':'.$suffix);
-                } else {
-                    ProcessGmailHistoryJob::dispatch($account->id, 'pending:'.$account->id.':'.$suffix);
-                }
-                $synced++;
-            } catch (\Throwable $e) {
-                $errors[] = $account->gmail_email.': '.$e->getMessage();
-            }
-        }
-
-        if ($errors !== []) {
-            return response()->json([
-                'message' => implode('; ', $errors),
-                'synced' => $synced,
-            ], 500);
+            $correlationId = $trigger->value.'-'.$account->id.'-'.(int) (microtime(true) * 1000);
+            ProcessGmailHistoryJob::dispatch($account->id, $trigger, $correlationId)->afterResponse();
         }
 
         return response()->json([
             'message' => 'Sync queued',
-            'synced' => $synced,
+            'synced' => $accounts->count(),
         ]);
     }
 }

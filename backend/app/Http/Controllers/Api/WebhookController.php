@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\SyncTrigger;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessGmailHistoryJob;
 use App\Models\GmailAccount;
@@ -37,18 +38,17 @@ class WebhookController extends Controller
 
         if (! $account) {
             Log::warning('Pub/Sub for unknown mailbox', ['email' => $emailAddress]);
+
             return response()->json(['status' => 'ignored']);
         }
 
-        $exists = ProcessedNotification::where('gmail_account_id', $account->id)
+        if (ProcessedNotification::where('gmail_account_id', $account->id)
             ->where('history_id', $historyId)
-            ->exists();
-
-        if ($exists) {
+            ->exists()) {
             return response()->json(['status' => 'duplicate']);
         }
 
-        ProcessGmailHistoryJob::dispatch($account->id, $historyId);
+        ProcessGmailHistoryJob::dispatch($account->id, SyncTrigger::PubSub, $historyId);
 
         return response()->json(['status' => 'queued']);
     }

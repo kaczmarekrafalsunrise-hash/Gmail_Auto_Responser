@@ -8,7 +8,6 @@ use App\Models\GmailMessage;
 use App\Models\GmailThread;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
 
 class NotificationController extends Controller
 {
@@ -20,17 +19,18 @@ class NotificationController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $messages = GmailMessage::with(['thread.messages.draftReply', 'draftReply'])
+        $messages = GmailMessage::query()
+            ->select(['id', 'gmail_thread_id', 'gmail_account_id', 'received_at'])
+            ->with([
+                'draftReply:id,gmail_message_id,status,approved_at',
+                'thread:id,subject,notification_state,gmail_account_id',
+            ])
             ->whereIn('gmail_account_id', $accountIds)
             ->whereHas('draftReply', function ($q) {
                 $q->whereIn('status', [DraftReply::STATUS_PENDING, DraftReply::STATUS_SENT]);
-            });
-
-        if (Schema::hasColumn('gmail_threads', 'notification_state')) {
-            $messages->whereHas('thread', fn ($q) => $q->where('notification_state', 0));
-        }
-
-        $messages = $messages->orderByDesc('received_at')
+            })
+            ->whereHas('thread', fn ($q) => $q->where('notification_state', 0))
+            ->orderByDesc('received_at')
             ->limit(50)
             ->get();
 
@@ -41,10 +41,6 @@ class NotificationController extends Controller
             $draft = $message->draftReply;
 
             if (! $thread || ! $draft) {
-                continue;
-            }
-
-            if ($thread->applyEffectiveNotificationState()->notification_state === 1) {
                 continue;
             }
 
@@ -80,12 +76,6 @@ class NotificationController extends Controller
 
         if ($accountIds->isEmpty()) {
             return response()->json(['message' => 'ok']);
-        }
-
-        if (! Schema::hasColumn('gmail_threads', 'notification_state')) {
-            return response()->json([
-                'message' => 'notification_state column missing. Run: php artisan migrate',
-            ], 503);
         }
 
         GmailThread::whereIn('gmail_account_id', $accountIds)

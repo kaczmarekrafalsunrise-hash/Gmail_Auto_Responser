@@ -15,11 +15,8 @@ backend/storage/framework/views/*
 backend/bootstrap/cache/*
 !backend/bootstrap/cache/.gitkeep
 frontend/.next/
+backend/database/*.sqlite
 *.log
-
-# Docs — README.md is the submission doc; extra docs stay local
-docs/
-
 # OS / editor noise
 .DS_Store
 Thumbs.db

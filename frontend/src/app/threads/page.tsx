@@ -4,7 +4,7 @@ import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AppShell, ConversationList } from '@/components/AppNav';
-import { getToken, gmail, threads } from '@/lib/api';
+import { auth, getToken, gmail, threads } from '@/lib/api';
 
 function threadNeedsProcessing(thread: Awaited<ReturnType<typeof threads.list>>['data'][number]) {
   const latestMessage = thread.messages?.[thread.messages.length - 1];
@@ -29,9 +29,18 @@ function ThreadsContent() {
     if (!getToken()) router.push('/login');
   }, [router]);
 
-  const { data: accountsData } = useQuery({
+  const { data: user, isSuccess: isAuthenticated } = useQuery({
+    queryKey: ['me'],
+    queryFn: auth.me,
+    retry: false,
+    enabled: !!getToken(),
+    staleTime: 60_000,
+  });
+
+  const { data: accountsData, isLoading: accountsLoading } = useQuery({
     queryKey: ['gmail-accounts'],
     queryFn: gmail.accounts,
+    enabled: isAuthenticated,
   });
 
   const { data, isLoading, isFetching } = useQuery({
@@ -45,9 +54,11 @@ function ThreadsContent() {
         q: q || undefined,
       }),
     placeholderData: keepPreviousData,
+    enabled: isAuthenticated,
+    staleTime: 20_000,
     refetchInterval: (query) => {
       const items = query.state.data?.data ?? [];
-      return items.some(threadNeedsProcessing) ? 5_000 : 30_000;
+      return items.some(threadNeedsProcessing) ? 10_000 : false;
     },
   });
 
@@ -76,6 +87,7 @@ function ThreadsContent() {
             <ConversationList
               threads={data?.data ?? []}
               mailboxes={mailboxes}
+              mailboxesLoading={accountsLoading}
               loading={isLoading && !data}
               fetching={isFetching}
               pagination={pagination}

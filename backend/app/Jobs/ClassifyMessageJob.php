@@ -5,8 +5,6 @@ namespace App\Jobs;
 use App\Models\Classification;
 use App\Models\GmailMessage;
 use App\Services\LlmService;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,26 +22,17 @@ class ClassifyMessageJob implements ShouldQueue
         $this->onQueue('ai');
     }
 
-    public static function runPipeline(int $gmailMessageId): void
-    {
-        try {
-            (new self($gmailMessageId))->handle(app(LlmService::class));
-        } catch (\Throwable $e) {
-            Log::error('Message pipeline failed', [
-                'gmail_message_id' => $gmailMessageId,
-                'error' => $e->getMessage(),
-            ]);
-            throw $e;
-        }
-    }
-
     public function handle(LlmService $llmService): void
     {
-        $message = GmailMessage::with(['classification', 'draftReply'])->findOrFail($this->gmailMessageId);
+        $message = GmailMessage::with(['classification', 'draftReply'])->find($this->gmailMessageId);
+
+        if (! $message) {
+            return;
+        }
 
         if ($message->classification) {
             if (! $message->draftReply && $message->classification->label !== Classification::LABEL_NOT_INTERESTED) {
-                GenerateDraftJob::dispatchSync($message->id);
+                GenerateDraftJob::dispatch($message->id);
             }
 
             return;
@@ -54,22 +43,17 @@ class ClassifyMessageJob implements ShouldQueue
             $message->body_text ?? ''
         );
 
-        $classificationData = [
+        $classification = Classification::create([
             'gmail_message_id' => $message->id,
             'label' => $result['label'],
             'confidence' => $result['confidence'],
             'model' => $result['model'],
             'raw_response' => $result['raw_response'],
-        ];
-
-        if (Schema::hasColumn('classifications', 'extracted_keywords')) {
-            $classificationData['extracted_keywords'] = $result['keywords'] ?? [];
-        }
-
-        $classification = Classification::create($classificationData);
+            'extracted_keywords' => $result['keywords'] ?? [],
+        ]);
 
         if ($classification->label !== Classification::LABEL_NOT_INTERESTED) {
-            GenerateDraftJob::dispatchSync($message->id);
+            GenerateDraftJob::dispatch($message->id);
         }
     }
 }

@@ -2,10 +2,11 @@
 
 namespace App\Jobs;
 
-use App\Models\GmailAccount;
-use App\Models\ProcessedNotification;
+use App\Enums\SyncTrigger;
 use App\Models\Classification;
+use App\Models\GmailAccount;
 use App\Models\GmailMessage;
+use App\Models\ProcessedNotification;
 use App\Services\GmailService;
 use App\Services\MessageSyncService;
 use Illuminate\Bus\Queueable;
@@ -13,6 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -24,7 +26,8 @@ class ProcessGmailHistoryJob implements ShouldQueue
 
     public function __construct(
         public int $gmailAccountId,
-        public string $historyId,
+        public SyncTrigger $trigger,
+        public string $historyId = '',
     ) {
         $this->onQueue('gmail-sync');
     }
@@ -41,14 +44,11 @@ class ProcessGmailHistoryJob implements ShouldQueue
             return;
         }
 
-        if (str_starts_with($this->historyId, 'pending:')) {
-            self::processPendingForAccount($account);
+        self::dispatchPendingJobs($account);
 
+        if (! $this->trigger->fetchesFromGmail()) {
             return;
         }
-
-        // Always process pending AI pipeline first (even if sync lock is held).
-        self::processPendingForAccount($account);
 
         $lock = Cache::lock('gmail:sync:'.$this->gmailAccountId, 55);
 
@@ -60,15 +60,17 @@ class ProcessGmailHistoryJob implements ShouldQueue
             $this->runSync($gmailService, $syncService, $account);
         } finally {
             $lock->release();
-            self::processPendingForAccount($account->fresh());
+            self::dispatchPendingJobs($account->fresh());
         }
     }
 
     private function runSync(GmailService $gmailService, MessageSyncService $syncService, GmailAccount $account): void
     {
-        if ($this->isPubSubNotification() && ProcessedNotification::where('gmail_account_id', $account->id)
-            ->where('history_id', $this->historyId)
-            ->exists()) {
+        if ($this->trigger->recordsProcessedNotification()
+            && $this->historyId !== ''
+            && ProcessedNotification::where('gmail_account_id', $account->id)
+                ->where('history_id', $this->historyId)
+                ->exists()) {
             return;
         }
 
@@ -111,7 +113,7 @@ class ProcessGmailHistoryJob implements ShouldQueue
             $account->update(['last_history_id' => $latest]);
         }
 
-        if ($this->isPubSubNotification()) {
+        if ($this->trigger->recordsProcessedNotification() && $this->historyId !== '') {
             ProcessedNotification::create([
                 'gmail_account_id' => $account->id,
                 'history_id' => $this->historyId,
@@ -120,17 +122,28 @@ class ProcessGmailHistoryJob implements ShouldQueue
 
         Log::info('Gmail sync finished', [
             'gmail_account_id' => $account->id,
-            'trigger' => $this->historyId,
+            'trigger' => $this->trigger->value,
+            'history_id' => $this->historyId,
             'messages_found' => count($result['message_ids']),
             'messages_synced' => $syncedCount,
         ]);
     }
 
-    public static function processPendingForAccount(GmailAccount $account): int
+    public static function dispatchPendingJobs(GmailAccount $account): int
     {
-        $count = 0;
+        $messageIds = self::pendingMessageIds($account);
 
-        GmailMessage::query()
+        foreach ($messageIds as $messageId) {
+            ClassifyMessageJob::dispatch($messageId);
+        }
+
+        return $messageIds->count();
+    }
+
+    /** @return Collection<int, int> */
+    public static function pendingMessageIds(GmailAccount $account): Collection
+    {
+        return GmailMessage::query()
             ->where('gmail_account_id', $account->id)
             ->where(function ($query) {
                 $query->whereDoesntHave('classification')
@@ -141,25 +154,6 @@ class ProcessGmailHistoryJob implements ShouldQueue
                     });
             })
             ->orderBy('id')
-            ->each(function (GmailMessage $message) use (&$count) {
-                try {
-                    ClassifyMessageJob::runPipeline($message->id);
-                    $count++;
-                } catch (\Throwable $e) {
-                    Log::warning('Pending message pipeline failed', [
-                        'gmail_message_id' => $message->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            });
-
-        return $count;
-    }
-
-    private function isPubSubNotification(): bool
-    {
-        return ! str_starts_with($this->historyId, 'auto:')
-            && ! str_starts_with($this->historyId, 'manual:')
-            && ! str_starts_with($this->historyId, 'poll:');
+            ->pluck('id');
     }
 }

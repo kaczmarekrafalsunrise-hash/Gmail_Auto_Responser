@@ -20,6 +20,8 @@ export default function SettingsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: () => settings.get(),
+    retry: false,
+    staleTime: 60_000,
   });
 
   useEffect(() => {

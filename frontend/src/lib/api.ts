@@ -9,24 +9,32 @@ export function getToken(): string | null {
 
 export function setToken(token: string) {
   localStorage.setItem('token', token);
+  authRedirectPending = false;
 }
 
 export function clearToken() {
   localStorage.removeItem('token');
 }
 
-const WELCOME_PENDING_KEY = 'revreply_welcome_pending';
+export class ApiError extends Error {
+  status: number;
 
-export function markWelcomePending(options?: { isNewUser?: boolean }) {
-  sessionStorage.setItem(WELCOME_PENDING_KEY, options?.isNewUser ? 'new' : 'returning');
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
 }
 
-export function consumeWelcomePending(): 'new' | 'returning' | false {
-  if (typeof window === 'undefined') return false;
-  const value = sessionStorage.getItem(WELCOME_PENDING_KEY);
-  if (!value) return false;
-  sessionStorage.removeItem(WELCOME_PENDING_KEY);
-  return value === 'new' ? 'new' : 'returning';
+let authRedirectPending = false;
+
+function handleUnauthorized() {
+  clearToken();
+  if (typeof window === 'undefined' || authRedirectPending) return;
+  const path = window.location.pathname;
+  if (path === '/login' || path === '/register') return;
+  authRedirectPending = true;
+  window.location.href = '/login?expired=1';
 }
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -43,12 +51,29 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      handleUnauthorized();
+    }
     const err = await res.json().catch(() => ({ message: res.statusText }));
     const hint = err.hint ? ` ${err.hint}` : '';
-    throw new Error((err.message || err.error || 'Request failed') + hint);
+    throw new ApiError((err.message || err.error || 'Request failed') + hint, res.status);
   }
 
   return res.json();
+}
+
+const WELCOME_PENDING_KEY = 'revreply_welcome_pending';
+
+export function markWelcomePending(options?: { isNewUser?: boolean }) {
+  sessionStorage.setItem(WELCOME_PENDING_KEY, options?.isNewUser ? 'new' : 'returning');
+}
+
+export function consumeWelcomePending(): 'new' | 'returning' | false {
+  if (typeof window === 'undefined') return false;
+  const value = sessionStorage.getItem(WELCOME_PENDING_KEY);
+  if (!value) return false;
+  sessionStorage.removeItem(WELCOME_PENDING_KEY);
+  return value === 'new' ? 'new' : 'returning';
 }
 
 export const auth = {
@@ -91,6 +116,7 @@ function threadQueryString(params: ThreadListParams = {}) {
 }
 
 export const threads = {
+  count: () => api<{ total: number }>('/threads/count'),
   list: (params: ThreadListParams = {}) =>
     api<Paginated<Thread>>(`/threads${threadQueryString(params)}`),
   show: (id: number) => api<Thread>(`/threads/${id}`),

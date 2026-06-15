@@ -24,6 +24,9 @@ function MailboxesContent() {
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [disconnectingId, setDisconnectingId] = useState<number | null>(null);
+  const [disconnectMessage, setDisconnectMessage] = useState('');
+  const [disconnectError, setDisconnectError] = useState('');
 
   useEffect(() => {
     if (!getToken()) router.push('/login');
@@ -46,21 +49,20 @@ function MailboxesContent() {
   useEffect(() => {
     if (!getToken()) return;
 
-    const runAutoSync = () => {
-      gmail
-        .syncAll()
-        .then(() => {
-          refetch();
-          queryClient.invalidateQueries({ queryKey: ['threads'] });
-        })
-        .catch(() => undefined);
-    };
+    gmail
+      .syncAll()
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['gmail-accounts'] });
+        queryClient.invalidateQueries({ queryKey: ['threads'] });
+      })
+      .catch(() => undefined);
+  }, [queryClient]);
 
-    runAutoSync();
-    const id = setInterval(runAutoSync, 60_000);
-
-    return () => clearInterval(id);
-  }, [queryClient, refetch]);
+  useEffect(() => {
+    if (!disconnectMessage) return;
+    const id = window.setTimeout(() => setDisconnectMessage(''), 6_000);
+    return () => window.clearTimeout(id);
+  }, [disconnectMessage]);
 
   async function handleConnect() {
     setConnecting(true);
@@ -75,9 +77,41 @@ function MailboxesContent() {
   }
 
   async function handleDisconnect(account: GmailAccount) {
-    if (!confirm(`Disconnect ${account.gmail_email}? Synced messages stay in Threads until you delete data.`)) return;
-    await gmail.disconnect(account.id);
-    refetch();
+    if (!confirm(`Disconnect ${account.gmail_email}? Synced messages stay in Threads until you delete data.`)) {
+      return;
+    }
+
+    setDisconnectError('');
+    setDisconnectMessage('');
+    setDisconnectingId(account.id);
+
+    queryClient.setQueryData<{ data: GmailAccount[]; meta?: { total: number } }>(
+      ['gmail-accounts'],
+      (current) => {
+        if (!current) return current;
+        const data = current.data.filter((a) => a.id !== account.id);
+        return {
+          ...current,
+          data,
+          meta: current.meta ? { ...current.meta, total: data.length } : current.meta,
+        };
+      },
+    );
+
+    try {
+      await gmail.disconnect(account.id);
+      setDisconnectMessage(`${account.gmail_email} disconnected.`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['gmail-accounts'] }),
+        queryClient.invalidateQueries({ queryKey: ['threads'] }),
+        queryClient.invalidateQueries({ queryKey: ['threads', 'count'] }),
+      ]);
+    } catch (err) {
+      await queryClient.invalidateQueries({ queryKey: ['gmail-accounts'] });
+      setDisconnectError(err instanceof Error ? err.message : 'Disconnect failed');
+    } finally {
+      setDisconnectingId(null);
+    }
   }
 
   async function handleSync(account: GmailAccount) {
@@ -114,7 +148,13 @@ function MailboxesContent() {
             Connected{connectedEmail ? ` ${connectedEmail}` : ''} successfully.
           </p>
         )}
+        {disconnectMessage && (
+          <p style={{ color: 'var(--success)', marginBottom: '1rem' }} role="status">
+            {disconnectMessage}
+          </p>
+        )}
         {error && <p className="error">Connection error: {error}</p>}
+        {disconnectError && <p className="error">{disconnectError}</p>}
         {connectError && <p className="error">{connectError}</p>}
 
         {googleStatus && !googleStatus.oauth_configured && (
@@ -165,6 +205,7 @@ function MailboxesContent() {
               onSync={handleSync}
               onDisconnect={handleDisconnect}
               syncing={syncingId === account.id}
+              disconnecting={disconnectingId === account.id}
             />
           ))}
         </div>

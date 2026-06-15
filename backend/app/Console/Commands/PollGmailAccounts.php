@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\SyncTrigger;
 use App\Jobs\ProcessGmailHistoryJob;
 use App\Models\GmailAccount;
 use App\Services\GmailService;
@@ -28,14 +29,13 @@ class PollGmailAccounts extends Command
 
         $pollMinute = now()->format('Y-m-d-H-i');
         $usePoll = ! $gmailService->isPubSubConfigured();
-
         $failed = 0;
 
         foreach ($accounts as $account) {
             if ($usePoll) {
-                $pollKey = 'poll:'.$account->id.':'.$pollMinute;
+                $correlationId = 'poll-'.$account->id.'-'.$pollMinute;
                 try {
-                    ProcessGmailHistoryJob::dispatchSync($account->id, $pollKey);
+                    ProcessGmailHistoryJob::dispatchSync($account->id, SyncTrigger::Poll, $correlationId);
                     $this->info("Polled {$account->gmail_email}");
                 } catch (\Throwable $e) {
                     $failed++;
@@ -47,9 +47,9 @@ class PollGmailAccounts extends Command
                     $this->error("Poll failed for {$account->gmail_email}: {$e->getMessage()}");
                 }
             } else {
-                $count = ProcessGmailHistoryJob::processPendingForAccount($account);
+                $count = ProcessGmailHistoryJob::dispatchPendingJobs($account);
                 if ($count > 0) {
-                    $this->info("Processed {$count} message(s) for {$account->gmail_email}");
+                    $this->info("Queued {$count} pending job(s) for {$account->gmail_email}");
                 }
             }
         }

@@ -3,71 +3,44 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\MessageResource;
+use App\Http\Resources\ThreadResource;
 use App\Jobs\ClassifyMessageJob;
 use App\Jobs\GenerateDraftJob;
 use App\Models\Classification;
-use App\Models\DraftReply;
 use App\Models\GmailMessage;
 use App\Models\GmailThread;
+use App\Services\ThreadListService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Schema;
 
 class ThreadController extends Controller
 {
+    public function __construct(private ThreadListService $threadList) {}
+
+    public function count(Request $request): JsonResponse
+    {
+        return response()->json([
+            'total' => $this->threadList->countForUser($request->user()),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
+        $threads = $this->threadList->paginateForUser($request->user(), $request);
 
-        $query = GmailThread::with(['messages.classification', 'messages.draftReply', 'gmailAccount'])
-            ->whereIn('gmail_account_id', $accountIds);
-
-        $search = trim((string) $request->query('q', ''));
-        if ($search !== '') {
-            $query->where(function ($q) use ($search) {
-                $like = '%'.$search.'%';
-                $q->where('subject', 'like', $like)
-                    ->orWhere('snippet', 'like', $like);
-            });
-        }
-
-        $filter = (string) $request->query('filter', 'all');
-        if ($filter === 'needs_review') {
-            $query->whereHas('messages.draftReply', fn ($q) => $q->where('status', DraftReply::STATUS_PENDING));
-        } elseif ($filter === 'sent') {
-            $query->whereHas('messages.draftReply', fn ($q) => $q->where('status', DraftReply::STATUS_SENT));
-        }
-
-        $label = (string) $request->query('label', 'all');
-        if ($label !== '' && $label !== 'all') {
-            $query->whereHas('messages.classification', fn ($q) => $q->where('label', $label));
-        }
-
-        $mailboxId = (int) $request->query('mailbox', 0);
-        if ($mailboxId > 0 && $accountIds->contains($mailboxId)) {
-            $query->where('gmail_account_id', $mailboxId);
-        } else {
-            $mailboxQ = trim((string) $request->query('mailbox_q', ''));
-            if ($mailboxQ !== '') {
-                $like = '%'.$mailboxQ.'%';
-                $query->whereHas('gmailAccount', fn ($q) => $q->where('gmail_email', 'like', $like));
-            }
-        }
-
-        $threads = $query->orderByDesc('last_message_at')->paginate(20);
-
-        $threads->getCollection()->transform(function (GmailThread $thread) {
-            return $thread->applyEffectiveNotificationState();
-        });
-
-        return response()->json($threads);
+        return response()->json([
+            'data' => ThreadResource::collection($threads->items())->resolve($request),
+            'current_page' => $threads->currentPage(),
+            'last_page' => $threads->lastPage(),
+            'total' => $threads->total(),
+        ]);
     }
 
     public function show(Request $request, GmailThread $thread): JsonResponse
     {
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($thread->gmail_account_id), 403);
+        $this->authorize('view', $thread);
 
         $thread->load(['messages.classification', 'messages.draftReply', 'gmailAccount']);
 
@@ -78,12 +51,12 @@ class ThreadController extends Controller
             if ($needsPipeline) {
                 $cacheKey = 'pipeline:queued:'.$message->id;
                 if (Cache::add($cacheKey, true, 300)) {
-                    ClassifyMessageJob::dispatch($message->id);
+                    ClassifyMessageJob::dispatch($message->id)->afterResponse();
                 }
             }
         }
 
-        return response()->json($thread->applyEffectiveNotificationState());
+        return response()->json((new ThreadResource($thread))->resolve($request));
     }
 
     public function markSeen(Request $request, GmailThread $thread): JsonResponse
@@ -95,19 +68,11 @@ class ThreadController extends Controller
 
     public function updateNotificationState(Request $request, GmailThread $thread): JsonResponse
     {
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($thread->gmail_account_id), 403);
+        $this->authorize('update', $thread);
 
         $validated = $request->validate([
             'state' => ['required', 'integer', 'in:0,1'],
         ]);
-
-        if (! Schema::hasColumn('gmail_threads', 'notification_state')) {
-            return response()->json([
-                'message' => 'notification_state column missing. Run: php artisan migrate',
-                'notification_state' => (int) $validated['state'],
-            ], 503);
-        }
 
         $thread->update(['notification_state' => $validated['state']]);
 
@@ -116,23 +81,21 @@ class ThreadController extends Controller
 
     public function message(Request $request, GmailMessage $message): JsonResponse
     {
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($message->gmail_account_id), 403);
+        $this->authorize('view', $message);
 
         $message->load(['classification', 'draftReply', 'thread', 'gmailAccount']);
 
-        return response()->json($message);
+        return response()->json((new MessageResource($message))->resolve($request));
     }
 
     public function generateDraft(Request $request, GmailMessage $message): JsonResponse
     {
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($message->gmail_account_id), 403);
+        $this->authorize('process', $message);
 
         $message->load(['classification', 'draftReply']);
 
         if ($message->draftReply) {
-            return response()->json($message->load(['classification', 'draftReply', 'thread', 'gmailAccount']));
+            return response()->json((new MessageResource($message->load(['classification', 'draftReply', 'thread', 'gmailAccount'])))->resolve($request));
         }
 
         if (! $message->classification) {
@@ -148,15 +111,14 @@ class ThreadController extends Controller
             GenerateDraftJob::dispatchSync($message->id);
         }
 
-        return response()->json(
+        return response()->json((new MessageResource(
             $message->fresh()->load(['classification', 'draftReply', 'thread', 'gmailAccount'])
-        );
+        ))->resolve($request));
     }
 
     public function process(Request $request, GmailMessage $message): JsonResponse
     {
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($message->gmail_account_id), 403);
+        $this->authorize('process', $message);
 
         try {
             ClassifyMessageJob::dispatchSync($message->id);
@@ -164,10 +126,7 @@ class ThreadController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
-            return response()->json([
-                'message' => $e->getMessage(),
-                'hint' => 'If this mentions a missing column, run: cd backend && php artisan migrate',
-            ], 500);
+            return response()->json(['message' => $e->getMessage()], 500);
         }
 
         if (! $message->classification) {
@@ -181,6 +140,6 @@ class ThreadController extends Controller
             ], 500);
         }
 
-        return response()->json($message);
+        return response()->json((new MessageResource($message))->resolve($request));
     }
 }

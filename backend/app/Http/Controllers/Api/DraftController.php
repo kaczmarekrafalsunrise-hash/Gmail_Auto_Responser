@@ -14,15 +14,14 @@ class DraftController extends Controller
 
     public function approve(Request $request, DraftReply $draft): JsonResponse
     {
-        $draft->load('gmailMessage.gmailAccount');
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($draft->gmailMessage->gmail_account_id), 403);
+        $this->authorize('update', $draft);
 
         $data = $request->validate([
             'body' => ['sometimes', 'string'],
         ]);
 
         $body = $data['body'] ?? $draft->body;
+        $draft->load('gmailMessage.gmailAccount');
         $message = $draft->gmailMessage;
         $account = $message->gmailAccount;
 
@@ -62,9 +61,7 @@ class DraftController extends Controller
 
     public function reject(Request $request, DraftReply $draft): JsonResponse
     {
-        $draft->load('gmailMessage');
-        $accountIds = $request->user()->gmailAccounts()->pluck('id');
-        abort_unless($accountIds->contains($draft->gmailMessage->gmail_account_id), 403);
+        $this->authorize('update', $draft);
 
         $draft->update(['status' => DraftReply::STATUS_REJECTED]);
 

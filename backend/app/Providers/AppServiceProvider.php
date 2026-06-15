@@ -2,7 +2,8 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -14,22 +15,15 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if (! Schema::hasTable('users')) {
+        JsonResource::withoutWrapping();
+
+        if (config('database.default') !== 'sqlite') {
             return;
         }
 
         try {
-            if (! Schema::hasColumn('users', 'reply_prompt')) {
-                Schema::table('users', function ($table) {
-                    $table->text('reply_prompt')->nullable();
-                });
-            }
-
-            if (Schema::hasTable('classifications') && ! Schema::hasColumn('classifications', 'extracted_keywords')) {
-                Schema::table('classifications', function ($table) {
-                    $table->json('extracted_keywords')->nullable();
-                });
-            }
+            DB::connection()->getPdo()->exec('PRAGMA journal_mode=WAL;');
+            DB::connection()->getPdo()->exec('PRAGMA synchronous=NORMAL;');
         } catch (\Throwable) {
             //
         }

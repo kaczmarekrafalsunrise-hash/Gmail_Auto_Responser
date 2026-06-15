@@ -23,11 +23,8 @@ class AuthController extends Controller
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => $data['password'],
+            'reply_prompt' => User::defaultReplyPrompt(),
         ];
-
-        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'reply_prompt')) {
-            $userData['reply_prompt'] = User::defaultReplyPrompt();
-        }
 
         $user = User::create($userData);
 

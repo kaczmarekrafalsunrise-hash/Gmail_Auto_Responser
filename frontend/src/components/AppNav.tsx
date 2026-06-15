@@ -76,10 +76,10 @@ function SidebarNav({ threadCount }: { threadCount: number }) {
       match: (path) => path.startsWith('/dashboard/mailboxes'),
     },
     {
-      href: '/dashboard?tab=settings',
+      href: '/settings',
       label: 'Settings',
       icon: 'settings',
-      match: (path, t) => path === '/dashboard' && t === 'settings',
+      match: (path) => path === '/settings',
     },
     {
       href: '/help',
@@ -95,8 +95,10 @@ function SidebarNav({ threadCount }: { threadCount: number }) {
       <Link key={item.href} href={item.href} className={`sidebar-link${active ? ' active' : ''}`}>
         <span className={`sidebar-link-icon sidebar-link-icon--${item.icon}`} aria-hidden="true" />
         <span className="sidebar-link-label">{item.label}</span>
-        {item.badge !== undefined && item.badge > 0 && (
-          <span className="sidebar-badge">{item.badge}</span>
+        {item.badge !== undefined && (
+          <span className={`sidebar-badge${item.badge > 0 ? '' : ' sidebar-badge--empty'}`}>
+            {item.badge > 0 ? item.badge : '0'}
+          </span>
         )}
       </Link>
     );
@@ -112,7 +114,7 @@ function SidebarNav({ threadCount }: { threadCount: number }) {
   );
 }
 
-function AppHeader() {
+function AppHeader({ user, isAuthenticated }: { user?: { name?: string; email?: string }; isAuthenticated: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -165,14 +167,14 @@ function AppHeader() {
         <kbd className="search-kbd">Ctrl K</kbd>
       </div>
       <div className="header-actions">
-        <HeaderNotifications />
-        <HeaderUser />
+        <HeaderNotifications isAuthenticated={isAuthenticated} />
+        <HeaderUser user={user} />
       </div>
     </header>
   );
 }
 
-function HeaderNotifications() {
+function HeaderNotifications({ isAuthenticated }: { isAuthenticated: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -181,8 +183,9 @@ function HeaderNotifications() {
   const { data, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: notifications.list,
-    enabled: !!getToken(),
-    refetchInterval: 30_000,
+    enabled: isAuthenticated,
+    staleTime: 30_000,
+    refetchInterval: isAuthenticated ? 30_000 : false,
   });
 
   const items = data?.data ?? [];
@@ -228,9 +231,9 @@ function HeaderNotifications() {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="header-icon header-icon--bell" />
-        {unreadCount > 0 && (
-          <span className="header-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
-        )}
+        <span className={`header-badge${unreadCount > 0 ? '' : ' header-badge--empty'}`}>
+          {unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : '0'}
+        </span>
       </button>
 
       {open && (
@@ -286,16 +289,18 @@ function HeaderNotifications() {
   );
 }
 
-function HeaderUser() {
-  const { data: user } = useQuery({
+function HeaderUser({ user }: { user?: { name?: string; email?: string } }) {
+  const { data: fetchedUser } = useQuery({
     queryKey: ['me'],
     queryFn: auth.me,
     retry: false,
-    enabled: !!getToken(),
+    enabled: !user && !!getToken(),
   });
 
-  const initials = user?.name
-    ? user.name
+  const displayUser = user ?? fetchedUser;
+
+  const initials = displayUser?.name
+    ? displayUser.name
         .split(' ')
         .map((part) => part[0])
         .join('')
@@ -307,8 +312,8 @@ function HeaderUser() {
     <div className="header-user">
       <div className="header-avatar">{initials}</div>
       <div className="header-user-info">
-        <strong>{user?.name ?? 'User'}</strong>
-        <span>{user?.email ?? ''}</span>
+        <strong>{displayUser?.name ?? 'User'}</strong>
+        <span>{displayUser?.email || '\u00A0'}</span>
       </div>
     </div>
   );
@@ -320,19 +325,23 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeIsNewUser, setWelcomeIsNewUser] = useState(false);
 
-  const { data: user } = useQuery({
+  const { data: user, isSuccess: isAuthenticated } = useQuery({
     queryKey: ['me'],
     queryFn: auth.me,
+    retry: false,
     enabled: !!getToken(),
+    staleTime: 60_000,
   });
 
-  const { data: threadsData } = useQuery({
-    queryKey: ['threads', 'sidebar-count'],
-    queryFn: () => threads.list({ page: 1 }),
-    enabled: !!getToken(),
+  const { data: countData } = useQuery({
+    queryKey: ['threads', 'count'],
+    queryFn: threads.count,
+    enabled: isAuthenticated,
+    retry: false,
+    staleTime: 60_000,
   });
 
-  const threadCount = threadsData?.total ?? 0;
+  const threadCount = countData?.total ?? 0;
 
   useEffect(() => {
     const pending = consumeWelcomePending();
@@ -402,7 +411,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
       <div className="app-main">
         <Suspense fallback={null}>
-          <AppHeader />
+          <AppHeader user={user} isAuthenticated={isAuthenticated} />
         </Suspense>
         <div className="app-content">{children}</div>
       </div>
@@ -683,9 +692,37 @@ function filterThreads(items: Thread[], query: string) {
   });
 }
 
+export function ConversationRowSkeleton() {
+  return (
+    <div className="conversation-item conversation-item--skeleton" aria-hidden="true">
+      <div className="conversation-row">
+        <div className="conversation-avatar">··</div>
+        <div className="conversation-body">
+          <div className="skeleton-line skeleton-line--sm" />
+          <div className="skeleton-line skeleton-line--md" />
+          <div className="skeleton-line skeleton-line--lg" />
+          <div className="conversation-tags conversation-tags--placeholder" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MailboxToolbarSkeleton() {
+  return (
+    <div className="mailbox-toolbar mailbox-toolbar--placeholder" aria-hidden="true">
+      <div className="mailbox-toolbar-skeleton">
+        <div className="mailbox-toolbar-skeleton-block mailbox-toolbar-skeleton-block--select" />
+        <div className="mailbox-toolbar-skeleton-block mailbox-toolbar-skeleton-block--search" />
+      </div>
+    </div>
+  );
+}
+
 type ConversationListProps = {
   threads: Thread[];
   mailboxes?: { id: number; gmail_email: string }[];
+  mailboxesLoading?: boolean;
   loading?: boolean;
   fetching?: boolean;
   limit?: number;
@@ -702,6 +739,7 @@ type ConversationListProps = {
 export function ConversationList({
   threads: threadItems,
   mailboxes = [],
+  mailboxesLoading = false,
   loading,
   fetching,
   limit,
@@ -716,14 +754,15 @@ export function ConversationList({
   const mailboxQ = searchParams.get('mailbox_q') ?? '';
   const query = searchParams.get('q') ?? '';
   const currentPage = pagination?.currentPage ?? Number(searchParams.get('page') ?? '1');
-  const showMailboxFilters = showFilters && mailboxes.length > 0;
+  const showMailboxFilters = showFilters && (mailboxes.length > 0 || mailboxesLoading);
 
   const visible = limit
     ? filterThreads(threadItems, query).slice(0, limit)
     : threadItems;
 
   const isInitialLoad = !!loading && visible.length === 0;
-  const showLoadingBar = !!fetching || isInitialLoad;
+  const showLoadingBar = !!fetching && !isInitialLoad;
+  const skeletonCount = limit ?? 8;
 
   return (
     <>
@@ -747,11 +786,15 @@ export function ConversationList({
           </div>
 
           {showMailboxFilters && (
-            <MailboxFilterBar
-              mailboxes={mailboxes}
-              mailboxFilter={mailboxFilter}
-              mailboxQ={mailboxQ}
-            />
+            mailboxesLoading && mailboxes.length === 0 ? (
+              <MailboxToolbarSkeleton />
+            ) : (
+              <MailboxFilterBar
+                mailboxes={mailboxes}
+                mailboxFilter={mailboxFilter}
+                mailboxQ={mailboxQ}
+              />
+            )
           )}
         </>
       )}
@@ -765,16 +808,22 @@ export function ConversationList({
           </div>
         )}
 
-        {pagination && !isInitialLoad && (
-          <p className="conversation-count">
-            {pagination.total.toLocaleString()} conversation{pagination.total === 1 ? '' : 's'}
-            {(workflowFilter !== 'all' || mailboxFilter !== 'all' || mailboxQ || query) &&
-              ' matching filters'}
+        {pagination && (
+          <p className="conversation-count" aria-busy={isInitialLoad}>
+            {isInitialLoad
+              ? '\u00A0'
+              : `${pagination.total.toLocaleString()} conversation${pagination.total === 1 ? '' : 's'}${
+                  workflowFilter !== 'all' || mailboxFilter !== 'all' || mailboxQ || query
+                    ? ' matching filters'
+                    : ''
+                }`}
           </p>
         )}
 
         <div className={`conversation-list${compact ? ' conversation-list--compact' : ''}`}>
-          {visible.map((thread) => {
+          {isInitialLoad
+            ? Array.from({ length: skeletonCount }, (_, i) => <ConversationRowSkeleton key={i} />)
+            : visible.map((thread) => {
           const latest = thread.messages?.[thread.messages.length - 1];
           const classification = latest?.classification;
           const draft = latest?.draft_reply;

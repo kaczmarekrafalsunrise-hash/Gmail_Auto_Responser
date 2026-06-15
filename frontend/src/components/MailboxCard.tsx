@@ -7,6 +7,7 @@ type Props = {
   onSync: (account: GmailAccount) => void;
   onDisconnect: (account: GmailAccount) => void;
   syncing?: boolean;
+  disconnecting?: boolean;
 };
 
 function statusClass(status: string) {
@@ -15,7 +16,9 @@ function statusClass(status: string) {
   return 'badge-warning';
 }
 
-export function MailboxCard({ account, onSync, onDisconnect, syncing }: Props) {
+export function MailboxCard({ account, onSync, onDisconnect, syncing, disconnecting }: Props) {
+  const busy = syncing || disconnecting;
+
   return (
     <div className="mailbox-card">
       <div className="mailbox-card-main">
@@ -34,11 +37,16 @@ export function MailboxCard({ account, onSync, onDisconnect, syncing }: Props) {
         </div>
       </div>
       <div className="mailbox-actions">
-        <button onClick={() => onSync(account)} className="btn btn-secondary" disabled={syncing}>
+        <button onClick={() => onSync(account)} className="btn btn-secondary" disabled={busy}>
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
-        <button onClick={() => onDisconnect(account)} className="btn btn-danger">
-          Disconnect
+        <button
+          onClick={() => onDisconnect(account)}
+          className={`btn btn-danger${disconnecting ? ' btn--loading' : ''}`}
+          disabled={busy}
+        >
+          {disconnecting && <span className="btn-spinner" aria-hidden="true" />}
+          {disconnecting ? 'Disconnecting…' : 'Disconnect'}
         </button>
       </div>
     </div>

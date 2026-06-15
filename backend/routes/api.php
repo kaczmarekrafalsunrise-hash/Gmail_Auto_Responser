@@ -25,6 +25,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/gmail/accounts/{gmailAccount}', [GmailController::class, 'destroy']);
     Route::post('/gmail/accounts/{gmailAccount}/sync', [GmailController::class, 'sync']);
 
+    Route::get('/threads/count', [ThreadController::class, 'count']);
     Route::get('/threads', [ThreadController::class, 'index']);
     Route::get('/threads/{thread}', [ThreadController::class, 'show']);
     Route::post('/threads/{thread}/seen', [ThreadController::class, 'markSeen']);

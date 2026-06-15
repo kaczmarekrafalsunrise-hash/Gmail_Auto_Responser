@@ -6,8 +6,6 @@ use App\Jobs\ClassifyMessageJob;
 use App\Models\GmailAccount;
 use App\Models\GmailMessage;
 use App\Models\GmailThread;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class MessageSyncService
@@ -31,12 +29,9 @@ class MessageSyncService
                 'subject' => $data['subject'],
                 'snippet' => Str($data['body_text'])->limit(200)->toString(),
                 'last_message_at' => $data['received_at'],
+                'notification_state' => 0,
             ]
         );
-
-        if (Schema::hasColumn('gmail_threads', 'notification_state')) {
-            $thread->update(['notification_state' => 0]);
-        }
 
         $message = GmailMessage::updateOrCreate(
             [
@@ -53,20 +48,8 @@ class MessageSyncService
             ]
         );
 
-        $this->runPipeline($message->id);
+        ClassifyMessageJob::dispatch($message->id);
 
         return $message;
-    }
-
-    public function runPipeline(int $gmailMessageId): void
-    {
-        try {
-            ClassifyMessageJob::runPipeline($gmailMessageId);
-        } catch (\Throwable $e) {
-            Log::error('Pipeline after sync failed', [
-                'gmail_message_id' => $gmailMessageId,
-                'error' => $e->getMessage(),
-            ]);
-        }
     }
 }

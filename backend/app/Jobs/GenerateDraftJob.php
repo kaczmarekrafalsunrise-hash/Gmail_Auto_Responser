@@ -4,15 +4,16 @@ namespace App\Jobs;
 
 use App\Models\DraftReply;
 use App\Models\GmailMessage;
+use App\Models\User;
 use App\Services\GmailService;
 use App\Services\LlmService;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
+use App\Services\ThreadListService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
 class GenerateDraftJob implements ShouldQueue
 {
@@ -28,17 +29,16 @@ class GenerateDraftJob implements ShouldQueue
     public function handle(GmailService $gmailService, LlmService $llmService): void
     {
         $message = GmailMessage::with(['gmailAccount.user', 'classification', 'draftReply'])
-            ->findOrFail($this->gmailMessageId);
+            ->find($this->gmailMessageId);
 
-        if ($message->draftReply) {
+        if (! $message || $message->draftReply) {
             return;
         }
 
         $classification = $message->classification;
         $label = $classification?->label ?? 'unclear';
         $keywords = $classification?->extracted_keywords ?? [];
-        $replyPrompt = $message->gmailAccount?->user?->reply_prompt
-            ?? \App\Models\User::defaultReplyPrompt();
+        $replyPrompt = $message->gmailAccount?->user?->reply_prompt ?? User::defaultReplyPrompt();
 
         $body = $llmService->generateDraft(
             $message->subject ?? '',
@@ -66,16 +66,16 @@ class GenerateDraftJob implements ShouldQueue
             ]);
         }
 
-        DraftReply::create([
+        $draft = DraftReply::create([
             'gmail_message_id' => $message->id,
             'gmail_draft_id' => $draftId,
             'body' => $body,
             'status' => DraftReply::STATUS_PENDING,
         ]);
 
-        $message->load('thread');
-        if (Schema::hasColumn('gmail_threads', 'notification_state')) {
-            $message->thread?->update(['notification_state' => 0]);
+        $message->loadMissing('thread');
+        if ($message->thread) {
+            ThreadListService::markThreadUnread($message->thread);
         }
     }
 }

@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, ConversationList, timeAgo } from '@/components/AppNav';
+import { AppShell, ConversationList, ConversationRowSkeleton, timeAgo } from '@/components/AppNav';
 import { getToken, gmail, settings, threads, type Thread } from '@/lib/api';
 
 function CenteredLoader({ message }: { message: string }) {
@@ -111,6 +111,10 @@ function DashboardContent() {
     if (!getToken()) router.push('/login');
   }, [router]);
 
+  useEffect(() => {
+    if (tab === 'settings') router.replace('/settings');
+  }, [tab, router]);
+
   const { data: accountsData, isLoading: accountsLoading } = useQuery({
     queryKey: ['gmail-accounts'],
     queryFn: gmail.accounts,
@@ -119,6 +123,7 @@ function DashboardContent() {
     queryKey: ['threads', 'dashboard'],
     queryFn: () => threads.list({ page: 1 }),
     enabled: !accountsLoading,
+    staleTime: 20_000,
   });
   const { data: googleStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['gmail-status'],
@@ -127,7 +132,8 @@ function DashboardContent() {
   const { data: settingsData, isLoading: settingsLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: () => settings.get(),
-    enabled: tab === 'settings',
+    retry: false,
+    staleTime: 60_000,
   });
 
   useEffect(() => {
@@ -230,34 +236,44 @@ function DashboardContent() {
           </button>
         </div>
 
-        {connected && (
-          <p style={{ color: 'var(--success)', marginBottom: '1rem', fontSize: '0.9rem' }}>
-            Gmail connected{connectedEmail ? `: ${connectedEmail}` : ''}.{' '}
-            <Link href="/dashboard/mailboxes">Manage mailboxes</Link>
-          </p>
-        )}
+        <div className="dashboard-alert-slot">
+          {connected && (
+            <p style={{ color: 'var(--success)', fontSize: '0.9rem' }}>
+              Gmail connected{connectedEmail ? `: ${connectedEmail}` : ''}.{' '}
+              <Link href="/dashboard/mailboxes">Manage mailboxes</Link>
+            </p>
+          )}
+        </div>
 
         <div className="overview-stats">
           <div className="stat-card">
             <p className="stat-card-label">Total Accounts</p>
-            <p className="stat-card-value">{accountsLoading ? '—' : accounts.length}</p>
+            <p className={`stat-card-value${accountsLoading ? ' stat-card-value--loading' : ''}`}>
+              {accountsLoading ? '0' : accounts.length}
+            </p>
             <p className="stat-card-meta">Connected Gmail inboxes</p>
           </div>
           <div className="stat-card">
             <p className="stat-card-label">Emails Processed</p>
-            <p className="stat-card-value">{threadsLoading ? '—' : emailsProcessed.toLocaleString()}</p>
+            <p className={`stat-card-value${threadsLoading ? ' stat-card-value--loading' : ''}`}>
+              {threadsLoading ? '0' : emailsProcessed.toLocaleString()}
+            </p>
             <p className="stat-card-trend stat-card-trend--up">+12.5% vs last month</p>
             <Sparkline color="#12b76a" />
           </div>
           <div className="stat-card">
             <p className="stat-card-label">Auto-Replied</p>
-            <p className="stat-card-value">{threadsLoading ? '—' : metrics.autoReplied}</p>
+            <p className={`stat-card-value${threadsLoading ? ' stat-card-value--loading' : ''}`}>
+              {threadsLoading ? '0' : metrics.autoReplied}
+            </p>
             <p className="stat-card-meta">Sent via Gmail</p>
             <Sparkline color="#33d6de" />
           </div>
           <div className="stat-card">
             <p className="stat-card-label">Needs Review</p>
-            <p className="stat-card-value">{threadsLoading ? '—' : metrics.needsReview}</p>
+            <p className={`stat-card-value${threadsLoading ? ' stat-card-value--loading' : ''}`}>
+              {threadsLoading ? '0' : metrics.needsReview}
+            </p>
             <p className="stat-card-meta">Pending approval</p>
             <Sparkline color="#f79009" />
           </div>
@@ -276,25 +292,30 @@ function DashboardContent() {
                 Manage
               </Link>
             </div>
-            {accountsLoading ? (
-              <CenteredLoader message="Loading accounts..." />
-            ) : accounts.length === 0 ? (
-              <p className="empty-inline">No mailboxes connected yet.</p>
-            ) : (
-              accounts.map((account) => (
-                <div key={account.id} className="account-row">
-                  <div>
-                    <p className="account-email">{account.gmail_email}</p>
-                    <p className="account-meta">
-                      {account.messages_count ?? 0} emails processed
-                    </p>
+            <div className="accounts-panel-body">
+              {accountsLoading ? (
+                <>
+                  <ConversationRowSkeleton />
+                  <ConversationRowSkeleton />
+                </>
+              ) : accounts.length === 0 ? (
+                <p className="empty-inline">No mailboxes connected yet.</p>
+              ) : (
+                accounts.map((account) => (
+                  <div key={account.id} className="account-row">
+                    <div>
+                      <p className="account-email">{account.gmail_email}</p>
+                      <p className="account-meta">
+                        {account.messages_count ?? 0} emails processed
+                      </p>
+                    </div>
+                    <span className={`badge badge-${account.status === 'active' ? 'active' : 'warning'}`}>
+                      {account.status_label || account.status}
+                    </span>
                   </div>
-                  <span className={`badge badge-${account.status === 'active' ? 'active' : 'warning'}`}>
-                    {account.status_label || account.status}
-                  </span>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
 
           <div className="panel">
@@ -308,6 +329,7 @@ function DashboardContent() {
               <ConversationList
                 threads={threadItems}
                 mailboxes={accounts}
+                mailboxesLoading={accountsLoading}
                 loading={threadsLoading}
                 limit={5}
                 showFilters={false}
