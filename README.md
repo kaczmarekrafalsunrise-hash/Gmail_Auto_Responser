@@ -29,9 +29,9 @@ Nothing auto-sends. Each user only sees their own mail.
 ```cmd
 cd backend
 copy .env.example .env
+type nul > database\database.sqlite
 composer install
 php artisan key:generate
-type nul > database\database.sqlite
 php artisan migrate
 ```
 
@@ -53,7 +53,7 @@ npm install
 ### Google OAuth
 
 1. [Google Cloud Console](https://console.cloud.google.com) → enable Gmail API
-2. OAuth consent screen (External) → add your Gmail as a test user
+2. OAuth consent screen (External) → Audience → add your Gmails as a test user
 3. Create a Web OAuth client
 4. Redirect URI: `http://localhost:8000/api/gmail/callback`
 5. Copy client ID + secret into `backend\.env`
